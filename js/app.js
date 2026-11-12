@@ -4,7 +4,7 @@ import { Timer, Recorder, Recognizer, speechSupported } from './speech.js';
 
 // AI modulis kraunamas atskirai, kad programėlė (planas, laikmatis) veiktų ir be jo.
 let ai = null;
-try { ai = await import('./ai.js'); } catch (e) { console.warn('AI modulio įkelti nepavyko', e); }
+try { ai = await import(`./ai.js${new URL(import.meta.url).search}`); } catch (e) { console.warn('AI modulio įkelti nepavyko', e); }
 // Serverio režimas: jei šalia yra api.php, raktas guli serveryje, o programėlė atrakinama serverio slaptažodžiu.
 let server = null;
 try { server = ai ? await ai.serverStatus() : null; } catch { server = null; }

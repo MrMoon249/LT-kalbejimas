@@ -27,6 +27,11 @@
     </a>
   </nav>
   <noscript>Šiai programėlei reikia įjungto „JavaScript“.</noscript>
-  <script type="module" src="js/app.js"></script>
+  <script type="module">
+    // Kiekvieną kartą kraunama naujausia versija – naršyklės talpykla nelaiko senos programėlės.
+    const v = Date.now();
+    document.querySelector('link[rel="stylesheet"]').href = `styles.css?v=${v}`;
+    import(`./js/app.js?v=${v}`);
+  </script>
 </body>
 </html>
