@@ -76,6 +76,7 @@ a { color: var(--accent); }
 .stack.tight { gap: 6px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.between { justify-content: space-between; }
+.row.between > .muted { flex: none; }
 .list { display: flex; flex-direction: column; gap: 10px; }
 .card {
   background: var(--surface);
@@ -211,7 +212,7 @@ a.card.item-link { justify-content: flex-start; }
 .quote { border-left: 3px solid var(--line); padding-left: 10px; color: var(--muted); }
 .issues { display: flex; flex-direction: column; }
 .issues li { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--line); }
-.wrong { color: var(--bad); text-decoration: line-through; text-decoration-thickness: 1px; }
+.wrong { color: var(--bad); }
 .right { color: var(--ok); font-weight: 600; }
 .arrow { color: var(--muted); }
 
