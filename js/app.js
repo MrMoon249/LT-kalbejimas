@@ -48,10 +48,10 @@ const spinner = (label) => h('p', { class: 'loading', role: 'status' }, h('span'
 let flash = ''; // vienkartinis pranešimas kitam rodiniui
 let returnTo = ''; // kur grįžti įvedus API raktą
 
-/** Grąžina {apiKey, model} arba null (ir nukreipia į Nustatymus, jei nėra rakto). */
-function aiOptions() {
+/** Grąžina {apiKey, model} arba null: be rakto nukreipia į Nustatymus, be AI modulio – kviečia showError. */
+function aiOptions(showError) {
   if (!ai) {
-    flash = 'AI modulio įkelti nepavyko. Patikrink interneto ryšį ir perkrauk puslapį.';
+    showError('AI modulio įkelti nepavyko. Patikrink interneto ryšį ir perkrauk puslapį.');
     return null;
   }
   const s = store.settings();
@@ -91,9 +91,9 @@ function render() {
     const m = path.match(re);
     if (m) { view = fn; tab = t; args = m.slice(1).map((a) => a && decodeURIComponent(a)); break; }
   }
-  const nodes = [view(...args)].flat();
+  const nodes = [view(...args)].flat(Infinity).filter(Boolean);
   if (flash && view !== viewSettings) { nodes.splice(1, 0, alertBox(flash)); flash = ''; }
-  app.replaceChildren(...nodes.filter(Boolean));
+  app.replaceChildren(...nodes);
   document.querySelectorAll('#tabs a').forEach((a) =>
     a.dataset.tab === tab ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   if (path !== lastPath) { window.scrollTo(0, 0); lastPath = path; }
@@ -164,8 +164,8 @@ function viewTextForm(id) {
     const files = [...file.files];
     file.value = '';
     if (!files.length) return;
-    const opts = aiOptions();
-    if (!opts) { if (flash) { status.replaceChildren(alertBox(flash)); flash = ''; } return; }
+    const opts = aiOptions((m) => status.replaceChildren(alertBox(m)));
+    if (!opts) return;
     photoBtn.classList.add('disabled');
     status.replaceChildren(spinner(`Skaitau tekstą iš ${files.length === 1 ? 'nuotraukos' : 'nuotraukų'}… Tai gali užtrukti iki minutės.`));
     try {
@@ -406,8 +406,8 @@ function viewSpeak(id) {
     evalBtn.addEventListener('click', async () => {
       s.error = '';
       if (!s.transcript.trim()) { status.replaceChildren(alertBox('Stenograma tuščia – įrašyk, ką pasakei.')); ta.focus(); return; }
-      const opts = aiOptions();
-      if (!opts) { if (flash) { status.replaceChildren(alertBox(flash)); flash = ''; } return; }
+      const opts = aiOptions((m) => status.replaceChildren(alertBox(m)));
+      if (!opts) return;
       evalBtn.disabled = againBtn.disabled = ta.disabled = true;
       status.replaceChildren(spinner('Vertinu tavo kalbėjimą… Tai gali užtrukti iki minutės.'));
       try {
