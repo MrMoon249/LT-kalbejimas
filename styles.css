@@ -1,38 +1,52 @@
 :root {
   color-scheme: light dark;
-  --bg: #f6f5f1;
+  --bg: #fff6ea;
   --surface: #ffffff;
-  --text: #1d2327;
-  --muted: #5a646d;
-  --line: #dcdad3;
-  --accent: #1f6f6b;
+  --text: #1f1638;
+  --muted: #645a7c;
+  --line: #eadfd2;
+  --accent: #5b34e6;
+  --accent-2: #e8388a;
   --accent-text: #ffffff;
-  --accent-soft: #e2f0ee;
-  --ok: #24693f;
-  --ok-soft: #e0f1e6;
-  --warn: #8a5300;
-  --warn-soft: #fbedd3;
-  --bad: #a8322a;
-  --bad-soft: #f9e2df;
-  --tabs-h: 60px;
-  --radius: 14px;
+  --accent-soft: #ece6ff;
+  --ok: #0f7a52;
+  --ok-soft: #d8f6e7;
+  --warn: #8f5200;
+  --warn-soft: #ffeac2;
+  --bad: #c0263a;
+  --bad-soft: #ffe1e4;
+  --blob-1: #ffd08a;
+  --blob-2: #d9c8ff;
+  --blob-3: #ffc2d9;
+  --shadow: 0 6px 22px rgba(70, 40, 140, 0.10), 0 1px 3px rgba(70, 40, 140, 0.08);
+  --grad: linear-gradient(135deg, var(--accent), var(--accent-2));
+  /* šešių plano punktų spalvos */
+  --c1: #5b34e6; --c2: #0d8fd6; --c3: #0f9d6b; --c4: #e07a00; --c5: #e8388a; --c6: #c0263a;
+  --tabs-h: 64px;
+  --radius: 20px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14181b;
-    --surface: #1e2428;
-    --text: #e8eaec;
-    --muted: #a3adb5;
-    --line: #333b41;
-    --accent: #6cc5bf;
-    --accent-text: #0e1b1a;
-    --accent-soft: #1d3432;
-    --ok: #7fd09b;
-    --ok-soft: #1b3324;
-    --warn: #f0b860;
-    --warn-soft: #3a2c12;
-    --bad: #f0958c;
-    --bad-soft: #40211e;
+    --bg: #140f26;
+    --surface: #211a3a;
+    --text: #f2eeff;
+    --muted: #b3a9cf;
+    --line: #372d58;
+    --accent: #b6a1ff;
+    --accent-2: #ff7fb8;
+    --accent-text: #170f2e;
+    --accent-soft: #33275e;
+    --ok: #6fe0ae;
+    --ok-soft: #123a2c;
+    --warn: #ffc56b;
+    --warn-soft: #40300f;
+    --bad: #ff8f9c;
+    --bad-soft: #4a1a24;
+    --blob-1: #4a2a12;
+    --blob-2: #2f2170;
+    --blob-3: #5a1c44;
+    --shadow: 0 6px 22px rgba(0, 0, 0, 0.35);
+    --c1: #b6a1ff; --c2: #6cc6ff; --c3: #6fe0ae; --c4: #ffb454; --c5: #ff7fb8; --c6: #ff8f9c;
   }
 }
 
@@ -239,3 +253,81 @@ a.card.item-link { justify-content: flex-start; }
 }
 #tabs svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 #tabs a[aria-current="page"] { color: var(--accent); }
+
+/* ---------- vaizdingesnė tema ---------- */
+body {
+  background:
+    radial-gradient(60vmax 40vmax at 100% -10%, var(--blob-1), transparent 60%),
+    radial-gradient(50vmax 40vmax at -10% 25%, var(--blob-2), transparent 60%),
+    radial-gradient(60vmax 45vmax at 110% 85%, var(--blob-3), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+h1 {
+  font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+h2, h3 { letter-spacing: -0.01em; }
+.card { border: 0; box-shadow: var(--shadow); padding: 16px; }
+.back { background: var(--surface); box-shadow: var(--shadow); margin: 0 6px 0 0; }
+
+.btn { border-radius: 16px; border-color: transparent; box-shadow: var(--shadow); transition: transform 0.12s ease; }
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--grad); border: 0; box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 40%, transparent); }
+.btn.stop, .btn.danger { border: 0; color: #fff; background: linear-gradient(135deg, #e8388a, #c0263a); }
+.btn.danger-text { box-shadow: none; }
+.btn.big { border-radius: 22px; font-size: 1.25rem; font-weight: 800; }
+@media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+
+input[type="text"], input[type="password"], input[type="number"], select, textarea { border-radius: 14px; border-width: 2px; }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: none; }
+
+.chip { font-weight: 600; border-radius: 999px; }
+.num { width: 1.9em; height: 1.9em; font-weight: 800; color: #fff; background: var(--hue, var(--accent)); }
+@media (prefers-color-scheme: dark) { .num { color: #170f2e; } }
+
+/* kiekvienas plano punktas – savo spalva */
+.step, ol.list > li.card { border-left: 6px solid var(--hue); }
+.step:nth-of-type(6n+1), ol.list > li:nth-child(6n+1) { --hue: var(--c1); }
+.step:nth-of-type(6n+2), ol.list > li:nth-child(6n+2) { --hue: var(--c2); }
+.step:nth-of-type(6n+3), ol.list > li:nth-child(6n+3) { --hue: var(--c3); }
+.step:nth-of-type(6n+4), ol.list > li:nth-child(6n+4) { --hue: var(--c4); }
+.step:nth-of-type(6n+5), ol.list > li:nth-child(6n+5) { --hue: var(--c5); }
+.step:nth-of-type(6n+6), ol.list > li:nth-child(6n+6) { --hue: var(--c6); }
+.step .chip { color: var(--hue); background: color-mix(in srgb, var(--hue) 13%, var(--surface)); }
+.cheat li::marker { color: var(--accent-2); font-weight: 800; }
+
+/* laikmatis */
+.timer { background: var(--grad); color: #fff; padding: 28px 18px 20px; border-radius: 28px; }
+.timer .muted, .timer .timer-state { color: rgba(255, 255, 255, 0.85); }
+.timer-time { font-size: 5.2rem; font-weight: 800; letter-spacing: -0.03em; text-shadow: 0 4px 18px rgba(0, 0, 0, 0.2); }
+.bar { height: 18px; border: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.25); }
+.bar-zone { background: rgba(255, 255, 255, 0.35); border-inline: 2px solid #fff; }
+.bar-fill { background: #fff; opacity: 0.9; border-radius: 999px; }
+.timer[data-zone="in"] { background: linear-gradient(135deg, #0f9d6b, #0d8fd6); }
+.timer[data-zone="over"] { background: linear-gradient(135deg, #e8388a, #c0263a); }
+.timer[data-zone="in"] .timer-time, .timer[data-zone="in"] .timer-state,
+.timer[data-zone="over"] .timer-time, .timer[data-zone="over"] .timer-state { color: #fff; }
+.timer[data-zone="in"] .bar-fill, .timer[data-zone="over"] .bar-fill { background: #fff; }
+
+/* vertinimas */
+.topfix { background: var(--grad); color: #fff; }
+.topfix h2 { color: rgba(255, 255, 255, 0.85); }
+.topfix p { font-size: 1.25rem; }
+.badge { border: 0; padding: 5px 12px; }
+.dot { border: 0; }
+.alert { border-radius: 16px; border-width: 0 0 0 5px; }
+.empty { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 36px 16px; }
+.empty::before { content: "🎤"; font-size: 3rem; line-height: 1; }
+
+/* apatinė navigacija – plaukiojanti */
+#tabs {
+  left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
+  max-width: 480px; margin: 0 auto; padding: 0 6px;
+  border: 0; border-radius: 999px; box-shadow: 0 10px 30px rgba(40, 20, 90, 0.22);
+}
+#tabs a { border-radius: 999px; margin: 6px 0; height: calc(var(--tabs-h) - 12px); }
+#tabs a[aria-current="page"] { color: var(--accent-text); background: var(--grad); }
+#app { padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 40px); }
+.actionbar { bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom) + 18px); }
