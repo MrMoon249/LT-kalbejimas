@@ -1,0 +1,12 @@
+{
+  "name": "Kalbėjimo treniruoklis",
+  "short_name": "Kalbėjimas",
+  "description": "Pasiruošimas lietuvių kalbos kalbėjimo įskaitai: planas, laikmatis ir AI vertinimas.",
+  "lang": "lt",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#1f6f6b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
