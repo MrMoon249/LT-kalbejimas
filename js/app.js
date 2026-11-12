@@ -597,6 +597,30 @@ function viewSettings() {
     id: 's-model', type: 'text', value: s.model, placeholder: ai?.DEFAULT_MODEL || '', autocomplete: 'off', spellcheck: false, autocapitalize: 'off',
     oninput: () => done(store.updateSettings({ model: model.value.trim() })),
   });
+  model.setAttribute('list', 's-models');
+  const modelList = h('datalist', { id: 's-models' });
+  const modelStatus = h('div', { 'aria-live': 'polite' });
+  const loadModels = h('button', {
+    class: 'btn block', type: 'button',
+    onclick: async () => {
+      if (!ai) return;
+      loadModels.disabled = true;
+      modelStatus.replaceChildren(spinner('Kraunu modelių sąrašą…'));
+      try {
+        const names = await ai.listModels({ apiKey: key.value.trim() });
+        modelList.replaceChildren(...names.map((n) => h('option', { value: n })));
+        modelStatus.replaceChildren(alertBox(`Rasta modelių: ${names.length}. Bakstelk pavadinimą žemiau (geriausia – Claude Sonnet ar Opus).`, 'ok'),
+          h('div', { class: 'chips' }, names.map((n) => h('button', {
+            class: 'chip', type: 'button',
+            onclick: () => { model.value = n; done(store.updateSettings({ model: n })); },
+          }, n))));
+      } catch (e) {
+        modelStatus.replaceChildren(alertBox(aiErrorText(e)));
+      } finally {
+        loadModels.disabled = false;
+      }
+    },
+  }, 'Įkelti modelių sąrašą');
   const timeErr = h('div', { 'aria-live': 'polite' });
   const saveTimes = () => {
     const a = Number(min.value), b = Number(max.value);
@@ -618,8 +642,9 @@ function viewSettings() {
       h('div', { class: 'row' }, h('div', { class: 'grow' }, key), showKey),
       h('p', { class: 'muted small' }, 'Raktas laikomas tik šios naršyklės atmintyje (localStorage) ir siunčiamas tik AI paslaugai. Jį gali perskaityti kiekvienas, kas naudojasi šia naršykle.'),
       returnTo && h('a', { class: 'btn primary block', href: returnTo, onclick: () => { returnTo = ''; } }, 'Grįžti atgal'),
-      h('label', { for: 's-model' }, 'Modelis'), model,
-      h('p', { class: 'muted small' }, ai ? `Palik tuščią – bus naudojamas numatytasis (${ai.DEFAULT_MODEL}).` : 'AI modulis neįkeltas.')),
+      h('label', { for: 's-model' }, 'Modelis'), model, modelList,
+      h('p', { class: 'muted small' }, ai ? `Tinka Anthropic arba nexos.ai raktas. Su Anthropic raktu modelį gali palikti tuščią (${ai.DEFAULT_MODEL}). Su nexos.ai raktu modelį pasirinkti būtina:` : 'AI modulis neįkeltas.'),
+      loadModels, modelStatus),
     h('section', { class: 'card stack' },
       h('h2', null, 'Tikslinė kalbėjimo trukmė'),
       h('div', { class: 'row' },

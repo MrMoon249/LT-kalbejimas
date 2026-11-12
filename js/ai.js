@@ -25,18 +25,25 @@ export class AiError extends Error {
 
 // ---------- HTTP ----------
 
+// nexos.ai raktai prasideda „nexos-“ – pagal tai parenkamas tiekėjas (OpenAI tipo sąsaja).
+export const NEXOS_URL = 'https://api.nexos.ai/v1';
+export const isNexos = (apiKey) => /^nexos-/i.test(String(apiKey || '').trim());
+
 async function post(body, apiKey, signal) {
+  const nexos = isNexos(apiKey);
   let res;
   try {
-    res = await fetch(API_URL, {
+    res = await fetch(nexos ? `${NEXOS_URL}/chat/completions` : API_URL, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION,
-        'anthropic-dangerous-direct-browser-access': 'true',
-        ...(body.fallbacks ? { 'anthropic-beta': FALLBACK_BETA } : {}),
-      },
+      headers: nexos
+        ? { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }
+        : {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': API_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true',
+          ...(body.fallbacks ? { 'anthropic-beta': FALLBACK_BETA } : {}),
+        },
       body: JSON.stringify(body),
       signal,
     });
@@ -45,7 +52,9 @@ async function post(body, apiKey, signal) {
       'network',
       e && e.name === 'AbortError'
         ? 'Užklausa truko per ilgai arba buvo nutraukta. Pabandyk dar kartą.'
-        : 'Nepavyko prisijungti prie Claude. Patikrink interneto ryšį ir bandyk dar kartą.',
+        : nexos
+          ? 'Nepavyko prisijungti prie nexos.ai. Patikrink interneto ryšį. Jei ryšys geras – gali būti, kad nexos.ai neleidžia kreiptis tiesiai iš naršyklės (CORS).'
+          : 'Nepavyko prisijungti prie Claude. Patikrink interneto ryšį ir bandyk dar kartą.',
     );
   }
   if (res.ok) {
@@ -58,7 +67,7 @@ async function post(body, apiKey, signal) {
   let detail = '';
   try {
     const j = await res.json();
-    detail = (j && j.error && j.error.message) || '';
+    detail = (j && j.error && (j.error.message || (typeof j.error === 'string' && j.error))) || (j && j.message) || '';
   } catch { /* ne JSON klaidos kūnas */ }
   const s = res.status;
   if (s === 401 || s === 403) {
@@ -67,15 +76,87 @@ async function post(body, apiKey, signal) {
   if (s === 429 || s === 529) {
     throw new AiError('rate', 'Claude šiuo metu perkrautas arba viršytas užklausų limitas. Palauk minutę ir bandyk dar kartą.');
   }
-  const err = new AiError('api', `Claude API klaida (${s})${detail ? ': ' + detail : ''}`);
+  const err = new AiError('api', `${nexos ? 'nexos.ai' : 'Claude'} API klaida (${s})${detail ? ': ' + detail : ''}`);
   err.status = s;
   err.detail = detail;
   throw err;
 }
 
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Atsarginis variantas, jei JSON būtų apgaubtas tekstu ar ```.
+    const a = text.indexOf('{');
+    const b = text.lastIndexOf('}');
+    if (a !== -1 && b > a) {
+      try {
+        return JSON.parse(text.slice(a, b + 1));
+      } catch { /* krentame žemyn */ }
+    }
+    throw new AiError('parse', 'Nepavyko perskaityti AI atsakymo. Pabandyk dar kartą.');
+  }
+}
+
+// nexos.ai: OpenAI tipo /chat/completions. Schema įrašoma ir į nurodymus, nes ne visi modeliai palaiko response_format.
+async function callNexos({ system, content, schema }, apiKey, model, signal) {
+  if (!model || model === DEFAULT_MODEL) {
+    throw new AiError('no_model', 'Su nexos.ai raktu reikia pasirinkti modelį. Nustatymuose paspausk „Įkelti modelių sąrašą“ ir pasirink.');
+  }
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: `${system}\n\nAtsakyk TIK vienu JSON objektu (be jokio kito teksto, be \`\`\`), tiksliai pagal šią JSON schemą:\n${JSON.stringify(schema)}` },
+      {
+        role: 'user',
+        content: content.map((c) => (c.type === 'image'
+          ? { type: 'image_url', image_url: { url: `data:${c.source.media_type};base64,${c.source.data}` } }
+          : { type: 'text', text: c.text })),
+      },
+    ],
+    response_format: { type: 'json_schema', json_schema: { name: 'atsakymas', strict: true, schema } },
+  };
+  let res;
+  try {
+    res = await post(body, apiKey, signal);
+  } catch (e) {
+    if (!(e instanceof AiError && e.code === 'api' && (e.status === 400 || e.status === 422))) throw e;
+    delete body.response_format; // modelis nepalaiko struktūrinio atsakymo – pasikliaujame nurodymais
+    res = await post(body, apiKey, signal);
+  }
+  const choice = res && Array.isArray(res.choices) ? res.choices[0] : null;
+  if (!choice) throw new AiError('parse', 'Gautas nesuprantamas nexos.ai atsakymas. Pabandyk dar kartą.');
+  if (choice.finish_reason === 'length') {
+    throw new AiError('parse', 'Atsakymas buvo per ilgas ir nutrūko. Pabandyk su trumpesniu tekstu arba mažiau nuotraukų.');
+  }
+  const c = choice.message && choice.message.content;
+  const text = (Array.isArray(c) ? c.map((b) => (b && b.text) || '').join('') : String(c || '')).trim();
+  if (!text) throw new AiError('api', 'Modelis negrąžino atsakymo (galbūt atsisakė). Pabandyk kitą modelį ar tekstą.');
+  return parseJson(text);
+}
+
+// Modelių sąrašas nustatymams (tik nexos.ai): grąžina pavadinimų masyvą.
+export async function listModels(opts) {
+  const apiKey = String((opts && opts.apiKey) || '').trim();
+  if (!apiKey) throw new AiError('no_key', 'Neįvestas API raktas.');
+  if (!isNexos(apiKey)) return [DEFAULT_MODEL];
+  let res;
+  try {
+    res = await fetch(`${NEXOS_URL}/models`, { headers: { authorization: `Bearer ${apiKey}` } });
+  } catch {
+    throw new AiError('network', 'Nepavyko prisijungti prie nexos.ai. Patikrink interneto ryšį. Jei ryšys geras – gali būti, kad nexos.ai neleidžia kreiptis tiesiai iš naršyklės (CORS).');
+  }
+  if (res.status === 401 || res.status === 403) throw new AiError('auth', 'API raktas netinkamas arba neturi teisių.');
+  if (!res.ok) throw new AiError('api', `nexos.ai API klaida (${res.status})`);
+  let j;
+  try { j = await res.json(); } catch { throw new AiError('parse', 'Gautas nesuprantamas modelių sąrašas.'); }
+  const arr = Array.isArray(j) ? j : (j && (j.data || j.models)) || [];
+  return [...new Set(arr.map((m) => (typeof m === 'string' ? m : m && (m.id || m.name))).filter(Boolean))].sort();
+}
+
 async function callClaude({ system, content, schema, effort }, opts) {
   const apiKey = String((opts && opts.apiKey) || '').trim();
-  if (!apiKey) throw new AiError('no_key', 'Neįvestas Claude API raktas. Įvesk jį nustatymuose.');
+  if (!apiKey) throw new AiError('no_key', 'Neįvestas API raktas. Įvesk jį nustatymuose.');
 
   const body = {
     model: (opts && opts.model) || DEFAULT_MODEL,
@@ -96,6 +177,7 @@ async function callClaude({ system, content, schema, effort }, opts) {
 
   let msg;
   try {
+    if (isNexos(apiKey)) return await callNexos({ system, content, schema }, apiKey, opts && opts.model, ctrl.signal);
     try {
       msg = await post(body, apiKey, ctrl.signal);
     } catch (e) {
@@ -123,19 +205,7 @@ async function callClaude({ system, content, schema, effort }, opts) {
     .map((b) => b.text)
     .join('')
     .trim();
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Atsarginis variantas, jei JSON būtų apgaubtas tekstu ar ```.
-    const a = text.indexOf('{');
-    const b = text.lastIndexOf('}');
-    if (a !== -1 && b > a) {
-      try {
-        return JSON.parse(text.slice(a, b + 1));
-      } catch { /* krentame žemyn */ }
-    }
-    throw new AiError('parse', 'Nepavyko perskaityti Claude atsakymo. Pabandyk dar kartą.');
-  }
+  return parseJson(text);
 }
 
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -191,7 +261,7 @@ export async function extractText(images, opts) {
 
   // Raktą tikriname pirmiausia (callClaude), nuotraukų trūkumą – tik turint raktą.
   if (!String((opts && opts.apiKey) || '').trim()) {
-    throw new AiError('no_key', 'Neįvestas Claude API raktas. Įvesk jį nustatymuose.');
+    throw new AiError('no_key', 'Neįvestas API raktas. Įvesk jį nustatymuose.');
   }
   if (!list.length) throw new AiError('api', 'Nepridėta nė viena nuotrauka.');
 
@@ -402,7 +472,7 @@ function normaliseEvaluation(raw, input) {
 export async function evaluate(input, opts) {
   const inp = input || {};
   if (!String((opts && opts.apiKey) || '').trim()) {
-    throw new AiError('no_key', 'Neįvestas Claude API raktas. Įvesk jį nustatymuose.');
+    throw new AiError('no_key', 'Neįvestas API raktas. Įvesk jį nustatymuose.');
   }
   const transcript = str(inp.transcript);
   if (transcript.split(/\s+/).filter(Boolean).length < MIN_WORDS) return emptyEvaluation(inp);
