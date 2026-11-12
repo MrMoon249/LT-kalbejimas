@@ -436,3 +436,40 @@ export async function evaluate(input, opts) {
   );
   return normaliseEvaluation(raw, inp);
 }
+
+// ---------- Treniruočių teksto generavimas ----------
+
+export const GENRES = ['straipsnis', 'interviu', 'reportažas', 'dienoraštis'];
+
+const GEN_SYSTEM = `Tu rašai treniruočių tekstus lietuvių kalbos kalbėjimo įskaitai (II gimnazijos klasė). Mokinys turės tekstą pristatyti žodžiu: įvardyti žanrą ir autorių, temą, autoriaus tikslą ir adresatą, problemą ir autoriaus argumentus (pacituoti), išsakyti savo požiūrį ir padaryti išvadą.
+
+Parašyk publicistinio stiliaus teksto ištrauką, panašią į vadovėliuose pateikiamas:
+- 300–400 žodžių, taisyklinga bendrinė lietuvių kalba, lietuviškos kabutės „…“.
+- Aiški tema ir viena aiški problema, dėl kurios galima sutikti arba ginčytis.
+- Autoriaus požiūris pagrįstas 2–3 argumentais ir pavyzdžiais; bent 2 ryškūs, cituoti tinkami sakiniai.
+- Žanro požymiai turi būti atpažįstami (interviu – klausimai ir atsakymai, dienoraštis – datos ir pirmas asmuo ir pan.).
+- Tinka 15–16 metų skaitytojui; be moralizavimo ir be klišių.
+- Autorius išgalvotas: sugalvok tikėtiną lietuvišką vardą ir pavardę bei profesiją (pvz., psichologė, žurnalistas). NENAUDOK tikrų žinomų žmonių vardų kaip autorių ir neprikurk jiems citatų.
+- „text“ lauke – tik pats tekstas (be pavadinimo ir autoriaus), pastraipos atskirtos tuščia eilute.`;
+
+const GEN_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    author: { type: 'string', description: 'Išgalvoto autoriaus vardas, pavardė ir profesija' },
+    text: { type: 'string' },
+  },
+  required: ['title', 'author', 'text'],
+  additionalProperties: false,
+};
+
+// input: { topic, genre? } -> { title, author, text, generated: true }
+export async function generateText(input, opts) {
+  const topic = str(input && input.topic) || 'Žmogus ir jo vertybės';
+  const genre = GENRES.includes(input && input.genre) ? input.genre : GENRES[0];
+  const content = [{ type: 'text', text: `Tema: ${safe(topic).slice(0, 200)}\nŽanras: ${genre}` }];
+  const out = await callClaude({ system: GEN_SYSTEM, content, schema: GEN_SCHEMA, effort: 'medium' }, opts);
+  const text = out && typeof out.text === 'string' ? out.text.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim() : '';
+  if (!text) throw new AiError('parse', 'Nepavyko sugeneruoti teksto. Pabandyk dar kartą.');
+  return { title: str(out.title) || topic, author: str(out.author), text, generated: true };
+}
