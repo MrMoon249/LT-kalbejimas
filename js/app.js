@@ -82,10 +82,59 @@ const routes = [
 let cleanup = null; // dabartinio rodinio išėjimo veiksmas
 let lastPath = null;
 
+/* ---------- užraktas (tik širma nuo smalsių akių, ne šifravimas) ---------- */
+
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function hashPassword(pw, salt) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(salt), iterations: 100000 }, key, 256));
+}
+const UNLOCK_KEY = 'kalbejimas-atrakinta';
+const sessionGet = () => { try { return sessionStorage.getItem(UNLOCK_KEY); } catch { return null; } };
+const sessionSet = (v) => { try { v ? sessionStorage.setItem(UNLOCK_KEY, v) : sessionStorage.removeItem(UNLOCK_KEY); } catch { /* privatus langas */ } };
+let unlockedHash = sessionGet(); // atrakinta, kol atidarytas šis skirtukas
+const isLocked = () => { const l = store.settings().lock; return !!(l && l.hash) && unlockedHash !== l.hash; };
+
+function viewLock() {
+  const pw = h('input', { id: 'l-pw', type: 'password', autocomplete: 'current-password' });
+  const status = h('div', { 'aria-live': 'polite' });
+  return [
+    header('Užrakinta', null, 'Kalbėjimo įskaitos treniruoklis'),
+    h('form', {
+      class: 'card stack',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const l = store.settings().lock;
+        let got = '';
+        try { got = await hashPassword(pw.value, l.salt); } catch { /* nesaugus kontekstas */ }
+        if (got === l.hash) { unlockedHash = got; sessionSet(got); render(); }
+        else { status.replaceChildren(alertBox('Neteisingas slaptažodis.')); pw.value = ''; pw.focus(); }
+      },
+    },
+      h('label', { for: 'l-pw' }, 'Slaptažodis'), pw, status,
+      h('button', { class: 'btn primary block', type: 'submit' }, 'Atrakinti')),
+    h('button', {
+      class: 'btn danger block', type: 'button',
+      onclick: () => {
+        if (!confirm('Pamiršai slaptažodį? Vienintelis kelias – ištrinti VISUS tekstus, bandymus ir nustatymus (taip pat API raktą). Tęsti?')) return;
+        store.clearAll(); sess = null; unlockedHash = null; sessionSet(null); go('#/'); render();
+      },
+    }, 'Pamiršau slaptažodį – ištrinti viską'),
+  ];
+}
+
 function render() {
   const path = location.hash.replace(/^#\/?/, '').replace(/\/$/, '');
   cleanup?.();
   cleanup = null;
+  const tabsEl = document.getElementById('tabs');
+  if (isLocked()) {
+    if (tabsEl) tabsEl.hidden = true;
+    app.replaceChildren(...viewLock().flat(Infinity).filter(Boolean));
+    return;
+  }
+  if (tabsEl) tabsEl.hidden = false;
   let view = notFound, tab = '', args = [];
   for (const [re, fn, t] of routes) {
     const m = path.match(re);
@@ -621,6 +670,32 @@ function viewSettings() {
       }
     },
   }, 'Įkelti modelių sąrašą');
+  const lock = s.lock && s.lock.hash ? s.lock : null;
+  const lockPw = h('input', { id: 's-lock', type: 'password', autocomplete: 'new-password', placeholder: 'Naujas slaptažodis' });
+  const lockStatus = h('div', { 'aria-live': 'polite' });
+  const lockCard = h('section', { class: 'card stack' },
+    h('h2', null, 'Užraktas'),
+    h('p', { class: 'muted small' }, 'Atidarius programėlę bus prašoma slaptažodžio. Tai širma nuo smalsių akių šiame telefone, ne tikras šifravimas – duomenys naršyklės atmintyje lieka neužšifruoti.'),
+    lock
+      ? [h('p', null, 'Užraktas įjungtas.'),
+        h('button', { class: 'btn block', type: 'button', onclick: () => { unlockedHash = null; sessionSet(null); render(); } }, 'Užrakinti dabar'),
+        h('button', { class: 'btn danger block', type: 'button', onclick: () => { store.updateSettings({ lock: null }); render(); } }, 'Išjungti užraktą')]
+      : [h('label', { for: 's-lock' }, 'Slaptažodis'), lockPw, lockStatus,
+        h('button', {
+          class: 'btn block', type: 'button',
+          onclick: async () => {
+            if (lockPw.value.length < 4) { lockStatus.replaceChildren(alertBox('Slaptažodis turi būti bent 4 ženklų.')); return; }
+            try {
+              const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
+              const hash = await hashPassword(lockPw.value, salt);
+              store.updateSettings({ lock: { salt, hash } });
+              unlockedHash = hash; sessionSet(hash);
+              render();
+            } catch {
+              lockStatus.replaceChildren(alertBox('Šioje naršyklėje užrakto įjungti nepavyko (reikia HTTPS).'));
+            }
+          },
+        }, 'Įjungti užraktą')]);
   const timeErr = h('div', { 'aria-live': 'polite' });
   const saveTimes = () => {
     const a = Number(min.value), b = Number(max.value);
@@ -652,6 +727,7 @@ function viewSettings() {
         h('div', { class: 'grow stack tight' }, h('label', { for: 's-max' }, 'Daugiausiai (sek.)'), max)),
       timeErr),
     saved,
+    lockCard,
     h('section', { class: 'card stack' },
       h('h2', null, 'Duomenys'),
       h('p', { class: 'muted small' }, 'Tekstai, užrašai ir bandymai laikomi tik šioje naršyklėje.'),
