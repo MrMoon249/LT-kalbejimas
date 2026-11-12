@@ -443,7 +443,50 @@ async function stopSpeaking() {
   l.wake?.release().catch(() => {});
   mine.phase = 'done';
   const blob = await l.recorder.stop().catch(() => null);
-  if (blob && sess === mine) mine.audioUrl = URL.createObjectURL(blob);
+  if (blob && sess === mine) { mine.audioBlob = blob; mine.audioUrl = URL.createObjectURL(blob); }
+}
+
+const audioDuration = (url) => new Promise((resolve) => {
+  const a = new Audio();
+  a.preload = 'metadata';
+  a.onloadedmetadata = () => resolve(Number.isFinite(a.duration) ? a.duration : 0);
+  a.onerror = () => resolve(0);
+  a.src = url;
+});
+
+/** Siunčia sesijos įrašą transkripcijai; rezultatą įrašo į stenogramą. */
+async function transcribeSession() {
+  const mine = sess;
+  if (!mine?.audioBlob || mine.transcribing) return;
+  const opts = aiOptions((m) => { mine.error = m; });
+  if (!opts) { render(); return; }
+  mine.transcribing = true; mine.error = '';
+  render();
+  try {
+    const res = await ai.transcribe(mine.audioBlob, { apiKey: opts.apiKey, sttModel: store.settings().sttModel });
+    if (res.model && res.model !== store.settings().sttModel) store.updateSettings({ sttModel: res.model });
+    mine.transcript = res.text;
+  } catch (e) {
+    mine.error = aiErrorText(e);
+  } finally {
+    mine.transcribing = false;
+    if (sess === mine) render();
+  }
+}
+
+/** Įkeltas diktofono failas: rodome grotuvą, trukmę imame iš failo, stenogramą – iš transkripcijos. */
+async function useAudioFile(file) {
+  const mine = sess;
+  if (file.size > 25 * 1024 * 1024) { mine.error = 'Failas per didelis (daugiausia 25 MB).'; render(); return; }
+  if (mine.audioUrl) URL.revokeObjectURL(mine.audioUrl);
+  mine.audioBlob = file;
+  mine.audioUrl = URL.createObjectURL(file);
+  mine.durationSec = await audioDuration(mine.audioUrl);
+  if (sess !== mine) return;
+  mine.phase = 'done';
+  mine.notices = mine.durationSec ? [] : ['Šio failo trukmės nustatyti nepavyko – laikas vertinime bus netikslus.'];
+  render();
+  transcribeSession();
 }
 
 function viewSpeak(id) {
@@ -496,6 +539,14 @@ function viewSpeak(id) {
       h('button', { class: 'btn primary big block', type: 'button', disabled: s.phase === 'starting', onclick: startSpeaking },
         s.phase === 'starting' ? 'Jungiamas mikrofonas…' : 'Pradėti'),
       h('p', { class: 'muted small center' }, 'Paspaudus „Pradėti“, naršyklė paprašys leidimo naudoti mikrofoną. Kalbėk taip, lyg atsakinėtum mokytojai.'),
+      s.error && alertBox(s.error),
+      (() => {
+        const file = h('input', { type: 'file', accept: 'audio/*,.m4a,.mp3,.wav,.ogg,.aac,.amr,.3gp', class: 'visually-hidden', id: 'f-audio' });
+        file.addEventListener('change', () => { const f = file.files[0]; file.value = ''; if (f) useAudioFile(f); });
+        return h('section', { class: 'stack' }, file,
+          h('label', { class: 'btn block', for: 'f-audio' }, 'Įkelti diktofono įrašą'),
+          h('p', { class: 'muted small center' }, 'Jau įrašei kalbą diktofonu? Įkelk failą – jis bus paverstas tekstu ir įvertintas.'));
+      })(),
       plan);
   } else if (s.phase === 'running') {
     const liveFinal = h('span', null, s.transcript);
@@ -514,7 +565,10 @@ function viewSpeak(id) {
       id: 'transcript', rows: 10, value: s.transcript, placeholder: 'Įrašyk, ką pasakei…',
       oninput: () => { s.transcript = ta.value; },
     });
-    const status = h('div', { 'aria-live': 'polite' }, s.error && alertBox(s.error));
+    const status = h('div', { 'aria-live': 'polite' },
+      s.transcribing && spinner('Verčiu įrašą į tekstą… Tai gali užtrukti iki minutės.'), s.error && alertBox(s.error));
+    const sttBtn = s.audioBlob && !s.transcribing && h('button', { class: 'btn block', type: 'button', onclick: transcribeSession },
+      s.transcript.trim() ? 'Perrašyti stenogramą iš įrašo (AI)' : 'Paversti įrašą tekstu (AI)');
     const evalBtn = h('button', { class: 'btn primary big block', type: 'button' }, 'Vertinti');
     const againBtn = h('button', {
       class: 'btn block', type: 'button',
@@ -555,8 +609,9 @@ function viewSpeak(id) {
       h('section', { class: 'stack' },
         h('label', { class: 'h2', for: 'transcript' }, 'Stenograma'),
         h('p', { class: 'muted small' }, 'Kalbos atpažinimas netobulas: pataisyk, kas išgirsta neteisingai, bet negražink to, ką iš tikrųjų pasakei – vertinama tavo kalba, ne rašinys.'),
-        ta),
+        ta, sttBtn),
       status, evalBtn, againBtn);
+    if (s.transcribing) evalBtn.disabled = ta.disabled = true;
   }
   return out;
 }

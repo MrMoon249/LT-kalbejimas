@@ -39,9 +39,15 @@ if ($method === 'GET') {
     out(200, ['server' => true, 'authed' => $authed, 'provider' => $provider, 'model' => $model]);
 }
 if ($method !== 'POST') fail(405, 'method', 'Tik POST.');
-if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) fail(415, 'content_type', 'Reikia application/json.');
-
-$in = json_decode(file_get_contents('php://input') ?: '', true);
+$ctype = $_SERVER['CONTENT_TYPE'] ?? '';
+if (stripos($ctype, 'multipart/form-data') === 0) {
+    $in = $_POST; // garso įrašo įkėlimas
+    if (!$in && (int)($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) fail(413, 'too_large', 'Failas per didelis serveriui.');
+} elseif (stripos($ctype, 'application/json') === 0) {
+    $in = json_decode(file_get_contents('php://input') ?: '', true);
+} else {
+    fail(415, 'content_type', 'Reikia application/json.');
+}
 if (!is_array($in)) fail(400, 'bad_request', 'Netinkama užklausa.');
 $action = (string)($in['action'] ?? '');
 
@@ -72,7 +78,7 @@ if ($action === 'logout') {
 if (!$authed) fail(401, 'login_required', 'Reikia prisijungti.');
 session_write_close(); // ilga AI užklausa neturi blokuoti kitų šios sesijos užklausų
 
-function upstream(string $provider, string $apiKey, string $path, ?array $body): never {
+function upstream(string $provider, string $apiKey, string $path, ?array $body, ?array $form = null): never {
     global $cfg;
     $base = $cfg['base_url'] ?? ($provider === 'nexos' ? 'https://api.nexos.ai/v1' : 'https://api.anthropic.com/v1');
     $headers = $provider === 'nexos'
@@ -81,7 +87,10 @@ function upstream(string $provider, string $apiKey, string $path, ?array $body):
     if ($provider !== 'nexos' && isset($body['fallbacks'])) $headers[] = 'anthropic-beta: server-side-fallback-2026-07-01';
     $ch = curl_init($base . $path);
     $opt = [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 200, CURLOPT_CONNECTTIMEOUT => 15];
-    if ($body !== null) {
+    if ($form !== null) {
+        $opt[CURLOPT_POST] = true;
+        $opt[CURLOPT_POSTFIELDS] = $form; // multipart
+    } elseif ($body !== null) {
         $headers[] = 'Content-Type: application/json';
         $opt[CURLOPT_POST] = true;
         $opt[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -102,6 +111,16 @@ set_time_limit(220);
 if ($action === 'models') {
     if ($provider !== 'nexos') out(200, ['data' => [['id' => $model !== '' ? $model : 'claude-sonnet-5-5']]]);
     upstream($provider, $apiKey, '/models', null);
+}
+if ($action === 'transcribe') {
+    if ($provider !== 'nexos') fail(400, 'unsupported', 'Transkripcija veikia tik su nexos.ai raktu.');
+    $f = $_FILES['file'] ?? null;
+    if (!$f || ($f['error'] ?? 1) !== UPLOAD_ERR_OK) fail(($f['error'] ?? 0) === UPLOAD_ERR_INI_SIZE ? 413 : 400, 'bad_file', 'Garso failo gauti nepavyko (gal per didelis).');
+    upstream($provider, $apiKey, '/audio/transcriptions', null, [
+        'file' => new CURLFile($f['tmp_name'], $f['type'] ?: 'application/octet-stream', $f['name'] ?: 'irasas'),
+        'model' => (string)($in['model'] ?? ''),
+        'language' => 'lt',
+    ]);
 }
 if ($action === 'chat') {
     $body = $in['body'] ?? null;

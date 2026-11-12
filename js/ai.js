@@ -594,3 +594,44 @@ export async function generateText(input, opts) {
   if (!text) throw new AiError('parse', 'Nepavyko sugeneruoti teksto. Pabandyk dar kartą.');
   return { title: str(out.title) || topic, author: str(out.author), text, generated: true };
 }
+
+// ---------- Garso įrašo transkripcija (tik per nexos.ai) ----------
+
+/** file: File/Blob su garsu. opts: { apiKey, sttModel? } -> { text, model } */
+export async function transcribe(file, opts) {
+  const apiKey = String((opts && opts.apiKey) || '').trim();
+  if (!apiKey) throw new AiError('no_key', 'Neįvestas API raktas. Įvesk jį nustatymuose.');
+  if (!isNexos(apiKey)) {
+    throw new AiError('unsupported', 'Automatinė transkripcija veikia tik su nexos.ai raktu. Stenogramą įrašyk ranka.');
+  }
+  let model = str(opts && opts.sttModel);
+  if (!model) {
+    const names = await listModels({ apiKey });
+    model = names.find((n) => /transcri/i.test(n)) || names.find((n) => /whisper|speech.?to.?text|stt/i.test(n)) || '';
+    if (!model) throw new AiError('no_model', 'Tavo nexos.ai paskyroje nerasta transkripcijos modelio (pvz., Whisper). Stenogramą įrašyk ranka.');
+  }
+  const form = new FormData();
+  form.append('file', file, file.name || 'irasas.webm');
+  form.append('model', model);
+  form.append('language', 'lt');
+  const server = viaServer(apiKey);
+  if (server) form.append('action', 'transcribe');
+  let res;
+  try {
+    res = await fetch(server ? SERVER_URL : `${NEXOS_URL}/audio/transcriptions`,
+      { method: 'POST', body: form, ...(server ? {} : { headers: { authorization: `Bearer ${apiKey}` } }) });
+  } catch {
+    throw new AiError('network', 'Nepavyko išsiųsti įrašo. Patikrink interneto ryšį.');
+  }
+  let j = null;
+  try { j = await res.json(); } catch { /* ne JSON */ }
+  if (!res.ok) {
+    const detail = (j && j.error && (j.error.message || (typeof j.error === 'string' && j.error))) || '';
+    if (server && j && j.error && j.error.type === 'login_required') throw new AiError('login', 'Sesija baigėsi. Prisijunk iš naujo.');
+    if (res.status === 413) throw new AiError('api', 'Įrašas per didelis serveriui. Pabandyk trumpesnį ar labiau suspaustą failą.');
+    throw new AiError('api', `Transkripcijos klaida (${res.status})${detail ? ': ' + detail : ''}`);
+  }
+  const text = str(j && j.text);
+  if (!text) throw new AiError('parse', 'Įraše nepavyko atpažinti kalbos.');
+  return { text, model };
+}
