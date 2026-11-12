@@ -27,7 +27,9 @@ export class AiError extends Error {
 
 // nexos.ai raktai prasideda „nexos-“ – pagal tai parenkamas tiekėjas (OpenAI tipo sąsaja).
 export const NEXOS_URL = 'https://api.nexos.ai/v1';
-export const isNexos = (apiKey) => /^(server:)?nexos/i.test(String(apiKey || '').trim());
+// „nx:“ – žymė, kai tiekėjas nexos.ai pasirinktas nustatymuose, o raktas neprasideda „nexos-“.
+export const isNexos = (apiKey) => /^((server:)?nexos|nx:)/i.test(String(apiKey || '').trim());
+const bare = (apiKey) => String(apiKey || '').replace(/^nx:/i, '');
 
 // Serverio režimas (api.php): raktas guli serveryje, o čia vietoj rakto naudojama žymė „server:<tiekėjas>“.
 const SERVER_URL = 'api.php';
@@ -80,7 +82,7 @@ async function post(body, apiKey, signal) {
     } : {
       method: 'POST',
       headers: nexos
-        ? { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }
+        ? { 'content-type': 'application/json', authorization: `Bearer ${bare(apiKey)}` }
         : {
           'content-type': 'application/json',
           'x-api-key': apiKey,
@@ -119,7 +121,7 @@ async function post(body, apiKey, signal) {
   if (server && etype === 'login_required') throw new AiError('login', 'Sesija baigėsi. Prisijunk iš naujo.');
   if (server && etype === 'upstream_auth') throw new AiError('auth', detail);
   if (s === 401 || s === 403) {
-    throw new AiError('auth', 'API raktas netinkamas arba neturi teisių. Patikrink raktą nustatymuose.');
+    throw new AiError('auth', `${nexos ? 'nexos.ai' : 'Anthropic'} atmetė API raktą (${s})${detail ? ': ' + detail : ''}. Patikrink raktą ir tiekėją nustatymuose.`);
   }
   if (s === 429 || s === 529) {
     throw new AiError('rate', 'Claude šiuo metu perkrautas arba viršytas užklausų limitas. Palauk minutę ir bandyk dar kartą.');
@@ -192,12 +194,12 @@ export async function listModels(opts) {
   try {
     res = await fetch(...(viaServer(apiKey)
       ? [SERVER_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'models' }) }]
-      : [`${NEXOS_URL}/models`, { headers: { authorization: `Bearer ${apiKey}` } }]));
+      : [`${NEXOS_URL}/models`, { headers: { authorization: `Bearer ${bare(apiKey)}` } }]));
   } catch {
     throw new AiError('network', 'Nepavyko prisijungti prie nexos.ai. Patikrink interneto ryšį. Jei ryšys geras – gali būti, kad nexos.ai neleidžia kreiptis tiesiai iš naršyklės (CORS).');
   }
   if (viaServer(apiKey) && res.status === 401) throw new AiError('login', 'Sesija baigėsi. Prisijunk iš naujo.');
-  if (res.status === 401 || res.status === 403) throw new AiError('auth', 'API raktas netinkamas arba neturi teisių.');
+  if (res.status === 401 || res.status === 403) throw new AiError('auth', `nexos.ai atmetė API raktą (${res.status}). Patikrink raktą.`);
   if (!res.ok) throw new AiError('api', `nexos.ai API klaida (${res.status})`);
   let j;
   try { j = await res.json(); } catch { throw new AiError('parse', 'Gautas nesuprantamas modelių sąrašas.'); }
@@ -619,7 +621,7 @@ export async function transcribe(file, opts) {
   let res;
   try {
     res = await fetch(server ? SERVER_URL : `${NEXOS_URL}/audio/transcriptions`,
-      { method: 'POST', body: form, ...(server ? {} : { headers: { authorization: `Bearer ${apiKey}` } }) });
+      { method: 'POST', body: form, ...(server ? {} : { headers: { authorization: `Bearer ${bare(apiKey)}` } }) });
   } catch {
     throw new AiError('network', 'Nepavyko išsiųsti įrašo. Patikrink interneto ryšį.');
   }

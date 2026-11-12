@@ -65,8 +65,11 @@ function aiOptions(showError) {
     go('#/nustatymai');
     return null;
   }
-  return { apiKey: s.apiKey, model: s.model || ai.DEFAULT_MODEL };
+  return { apiKey: providerKey(s), model: s.model || ai.DEFAULT_MODEL };
 }
+
+/** Raktas su tiekėjo žyme: jei nustatymuose pasirinkta nexos.ai, o raktas neprasideda „nexos-“. */
+const providerKey = (s, key = s.apiKey) => (s.provider === 'nexos' && key && !/^nexos-/i.test(key) ? `nx:${key}` : key);
 
 const aiErrorText = (e) => {
   if (e && e.code === 'login' && server) { server.authed = false; setTimeout(render); } // sesija baigėsi – rodome prisijungimą
@@ -740,6 +743,9 @@ function viewSettings() {
     id: 's-model', type: 'text', value: s.model, placeholder: ai?.DEFAULT_MODEL || '', autocomplete: 'off', spellcheck: false, autocapitalize: 'off',
     oninput: () => done(store.updateSettings({ model: model.value.trim() })),
   });
+  const provider = h('select', { id: 's-provider', onchange: () => done(store.updateSettings({ provider: provider.value })) },
+    [['auto', 'Automatiškai (pagal raktą)'], ['nexos', 'nexos.ai'], ['anthropic', 'Anthropic']]
+      .map(([v, label]) => h('option', { value: v, selected: (s.provider || 'auto') === v }, label)));
   model.setAttribute('list', 's-models');
   const modelList = h('datalist', { id: 's-models' });
   const modelStatus = h('div', { 'aria-live': 'polite' });
@@ -750,7 +756,7 @@ function viewSettings() {
       loadModels.disabled = true;
       modelStatus.replaceChildren(spinner('Kraunu modelių sąrašą…'));
       try {
-        const names = await ai.listModels({ apiKey: server ? ai.serverKey(server) : key.value.trim() });
+        const names = await ai.listModels({ apiKey: server ? ai.serverKey(server) : providerKey(store.settings(), key.value.trim()) });
         modelList.replaceChildren(...names.map((n) => h('option', { value: n })));
         modelStatus.replaceChildren(alertBox(`Rasta modelių: ${names.length}. Bakstelk pavadinimą žemiau (geriausia – Claude Sonnet ar Opus).`, 'ok'),
           h('div', { class: 'chips' }, names.map((n) => h('button', {
@@ -822,6 +828,7 @@ function viewSettings() {
       h('div', { class: 'row' }, h('div', { class: 'grow' }, key), showKey),
       h('p', { class: 'muted small' }, 'Raktas laikomas tik šios naršyklės atmintyje (localStorage) ir siunčiamas tik AI paslaugai. Jį gali perskaityti kiekvienas, kas naudojasi šia naršykle.'),
       returnTo && h('a', { class: 'btn primary block', href: returnTo, onclick: () => { returnTo = ''; } }, 'Grįžti atgal'),
+      h('label', { for: 's-provider' }, 'Tiekėjas'), provider,
       h('label', { for: 's-model' }, 'Modelis'), model, modelList,
       h('p', { class: 'muted small' }, ai ? `Tinka Anthropic arba nexos.ai raktas. Su Anthropic raktu modelį gali palikti tuščią (${ai.DEFAULT_MODEL}). Su nexos.ai raktu modelį pasirinkti būtina:` : 'AI modulis neįkeltas.'),
       loadModels, modelStatus),
