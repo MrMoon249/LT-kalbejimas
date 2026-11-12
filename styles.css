@@ -94,7 +94,7 @@ a { color: var(--accent); }
 
 /* formos */
 label, .h2 { display: block; font-weight: 600; }
-input[type="text"], input[type="password"], input[type="number"], textarea {
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
   width: 100%;
   font: inherit;
   color: inherit;
@@ -104,7 +104,7 @@ input[type="text"], input[type="password"], input[type="number"], textarea {
   padding: 11px 12px;
   min-height: 48px;
 }
-.card input, .card textarea { background: var(--bg); }
+.card input, .card select, .card textarea { background: var(--bg); }
 textarea { resize: vertical; line-height: 1.45; display: block; }
 audio { width: 100%; }
 

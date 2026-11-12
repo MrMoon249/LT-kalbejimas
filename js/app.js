@@ -184,6 +184,38 @@ function viewTextForm(id) {
     }
   });
 
+  const TOPICS = ['Žmogus ir meilė', 'Draugystė', 'Šeima ir kartų santykiai', 'Technologijos ir jaunimas', 'Gamta ir atsakomybė', 'Laisvė ir pasirinkimas', 'Mokykla ir mokymasis', 'Tapatybė ir savivertė'];
+  const topic = h('input', { id: 'g-topic', type: 'text', autocomplete: 'off', placeholder: 'pvz., Žmogus ir meilė' });
+  topic.setAttribute('list', 'g-topics'); // „list“ savybė tik skaitoma
+  const genre = h('select', { id: 'g-genre' }, (ai?.GENRES || ['straipsnis']).map((g) => h('option', { value: g }, g)));
+  const genBtn = h('button', {
+    class: 'btn block', type: 'button',
+    onclick: async () => {
+      const opts = aiOptions((m) => status.replaceChildren(alertBox(m)));
+      if (!opts) return;
+      if (text.value.trim() && !confirm('Laukuose jau yra tekstas. Pakeisti jį sugeneruotu?')) return;
+      genBtn.disabled = true;
+      status.replaceChildren(spinner('Rašau treniruočių tekstą… Tai gali užtrukti iki minutės.'));
+      try {
+        const res = await ai.generateText({ topic: topic.value, genre: genre.value }, opts);
+        title.value = res.title;
+        author.value = `${res.author} (išgalvotas autorius, AI tekstas)`.trim();
+        text.value = res.text;
+        status.replaceChildren(alertBox('Tekstas sugeneruotas. Autorius išgalvotas – tai tik treniruotei.', 'ok'));
+      } catch (e) {
+        status.replaceChildren(alertBox(aiErrorText(e)));
+      } finally {
+        genBtn.disabled = false;
+      }
+    },
+  }, 'Sugeneruoti tekstą');
+  const genCard = !existing && h('section', { class: 'card stack' },
+    h('p', { class: 'muted small' }, 'Neturi teksto? AI parašys panašų į įskaitos tekstus pagal pasirinktą temą ir žanrą.'),
+    h('label', { for: 'g-topic' }, 'Tema'), topic,
+    h('datalist', { id: 'g-topics' }, TOPICS.map((t) => h('option', { value: t }))),
+    h('label', { for: 'g-genre' }, 'Žanras'), genre,
+    genBtn);
+
   const form = h('form', {
     class: 'stack',
     onsubmit: (e) => {
@@ -204,6 +236,7 @@ function viewTextForm(id) {
     h('section', { class: 'card stack' },
       h('p', { class: 'muted small' }, 'Nufotografuok teksto puslapius – AI perrašys juos į laukus žemiau. Arba tiesiog įklijuok tekstą ranka.'),
       file, photoBtn),
+    genCard,
     status,
     form,
   ];
