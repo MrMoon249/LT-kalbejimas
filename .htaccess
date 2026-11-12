@@ -1,0 +1,6 @@
+# Konfigūracijos ir repo failai neturi būti pasiekiami per naršyklę.
+<FilesMatch "^(config(\.example)?\.php|README\.md|\.gitignore)$">
+  Require all denied
+</FilesMatch>
+RedirectMatch 404 /\.git
+Options -Indexes

@@ -5,6 +5,9 @@ import { Timer, Recorder, Recognizer, speechSupported } from './speech.js';
 // AI modulis kraunamas atskirai, kad programėlė (planas, laikmatis) veiktų ir be jo.
 let ai = null;
 try { ai = await import('./ai.js'); } catch (e) { console.warn('AI modulio įkelti nepavyko', e); }
+// Serverio režimas: jei šalia yra api.php, raktas guli serveryje, o programėlė atrakinama serverio slaptažodžiu.
+let server = null;
+try { server = ai ? await ai.serverStatus() : null; } catch { server = null; }
 
 const app = document.getElementById('app');
 
@@ -55,6 +58,7 @@ function aiOptions(showError) {
     return null;
   }
   const s = store.settings();
+  if (server) return { apiKey: ai.serverKey(server), model: server.model || s.model || ai.DEFAULT_MODEL };
   if (!s.apiKey) {
     flash = 'Šiam veiksmui reikia API rakto. Įvesk jį čia ir grįžk atgal.';
     returnTo = location.hash;
@@ -64,7 +68,10 @@ function aiOptions(showError) {
   return { apiKey: s.apiKey, model: s.model || ai.DEFAULT_MODEL };
 }
 
-const aiErrorText = (e) => (e && e.code && e.message ? e.message : 'Įvyko nenumatyta klaida. Bandyk dar kartą.');
+const aiErrorText = (e) => {
+  if (e && e.code === 'login' && server) { server.authed = false; setTimeout(render); } // sesija baigėsi – rodome prisijungimą
+  return e && e.code && e.message ? e.message : 'Įvyko nenumatyta klaida. Bandyk dar kartą.';
+};
 
 /* ---------- maršrutizatorius ---------- */
 
@@ -94,9 +101,41 @@ const UNLOCK_KEY = 'kalbejimas-atrakinta';
 const sessionGet = () => { try { return sessionStorage.getItem(UNLOCK_KEY); } catch { return null; } };
 const sessionSet = (v) => { try { v ? sessionStorage.setItem(UNLOCK_KEY, v) : sessionStorage.removeItem(UNLOCK_KEY); } catch { /* privatus langas */ } };
 let unlockedHash = sessionGet(); // atrakinta, kol atidarytas šis skirtukas
-const isLocked = () => { const l = store.settings().lock; return !!(l && l.hash) && unlockedHash !== l.hash; };
+const isLocked = () => {
+  if (server) return !server.authed;
+  const l = store.settings().lock;
+  return !!(l && l.hash) && unlockedHash !== l.hash;
+};
+
+function viewServerLogin() {
+  if (server.error) return [header('Serveris nesukonfigūruotas', null, 'Kalbėjimo įskaitos treniruoklis'), alertBox(server.error)];
+  const pw = h('input', { id: 'l-pw', type: 'password', autocomplete: 'current-password' });
+  const status = h('div', { 'aria-live': 'polite' });
+  const btn = h('button', { class: 'btn primary block', type: 'submit' }, 'Prisijungti');
+  return [
+    header('Prisijungimas', null, 'Kalbėjimo įskaitos treniruoklis'),
+    h('form', {
+      class: 'card stack',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        btn.disabled = true;
+        try {
+          Object.assign(server, await ai.serverLogin(pw.value));
+          render();
+        } catch (err) {
+          status.replaceChildren(alertBox(err && err.message ? err.message : 'Prisijungti nepavyko.'));
+          pw.value = ''; pw.focus();
+        } finally {
+          btn.disabled = false;
+        }
+      },
+    },
+      h('label', { for: 'l-pw' }, 'Slaptažodis'), pw, status, btn),
+  ];
+}
 
 function viewLock() {
+  if (server) return viewServerLogin();
   const pw = h('input', { id: 'l-pw', type: 'password', autocomplete: 'current-password' });
   const status = h('div', { 'aria-live': 'polite' });
   return [
@@ -656,7 +695,7 @@ function viewSettings() {
       loadModels.disabled = true;
       modelStatus.replaceChildren(spinner('Kraunu modelių sąrašą…'));
       try {
-        const names = await ai.listModels({ apiKey: key.value.trim() });
+        const names = await ai.listModels({ apiKey: server ? ai.serverKey(server) : key.value.trim() });
         modelList.replaceChildren(...names.map((n) => h('option', { value: n })));
         modelStatus.replaceChildren(alertBox(`Rasta modelių: ${names.length}. Bakstelk pavadinimą žemiau (geriausia – Claude Sonnet ar Opus).`, 'ok'),
           h('div', { class: 'chips' }, names.map((n) => h('button', {
@@ -712,7 +751,18 @@ function viewSettings() {
   return [
     header('Nustatymai'),
     msg && alertBox(msg, 'warn'),
-    h('section', { class: 'card stack' },
+    server ? h('section', { class: 'card stack' },
+      h('h2', null, 'AI'),
+      h('p', { class: 'muted small' }, 'AI veikia per serverį: API raktas laikomas serveryje, ne telefone.'),
+      server.model
+        ? h('p', null, `Modelis: ${server.model}`)
+        : [h('label', { for: 's-model' }, 'Modelis'), model, modelList,
+          server.provider === 'nexos' && h('p', { class: 'muted small' }, 'Su nexos.ai modelį pasirinkti būtina:'),
+          server.provider === 'nexos' && loadModels, modelStatus],
+      h('button', {
+        class: 'btn block', type: 'button',
+        onclick: async () => { try { await ai.serverLogout(); } catch { /* vis tiek rodome prisijungimą */ } server.authed = false; render(); },
+      }, 'Atsijungti')) : h('section', { class: 'card stack' },
       h('label', { for: 's-key' }, 'API raktas'),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, key), showKey),
       h('p', { class: 'muted small' }, 'Raktas laikomas tik šios naršyklės atmintyje (localStorage) ir siunčiamas tik AI paslaugai. Jį gali perskaityti kiekvienas, kas naudojasi šia naršykle.'),
@@ -727,7 +777,7 @@ function viewSettings() {
         h('div', { class: 'grow stack tight' }, h('label', { for: 's-max' }, 'Daugiausiai (sek.)'), max)),
       timeErr),
     saved,
-    lockCard,
+    !server && lockCard,
     h('section', { class: 'card stack' },
       h('h2', null, 'Duomenys'),
       h('p', { class: 'muted small' }, 'Tekstai, užrašai ir bandymai laikomi tik šioje naršyklėje.'),

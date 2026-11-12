@@ -38,3 +38,15 @@ Visi keliai santykiniai, todėl užtenka saugyklos nustatymuose įjungti „Page
 
 Rekomenduojama **Chrome** (kompiuteryje arba „Android“) – joje veikia lietuvių kalbos atpažinimas.
 Kitose naršyklėse laikmatis ir įrašas veikia, bet stenogramą gali tekti įrašyti ranka.
+
+## Talpinimas Hostinger (rekomenduojama)
+
+Su PHP talpinimu API raktas lieka serveryje, o programėlė atrakinama serverio slaptažodžiu.
+
+1. Įkelk visus repo failus į `public_html` (arba jo poaplankį): per hPanel → **Failų tvarkyklę** arba hPanel → **Git**.
+2. Serveryje nukopijuok `config.example.php` kaip `config.php` ir įrašyk API raktą (nexos.ai arba Anthropic) bei slaptažodį (bent 8 ženklai).
+3. Įsitikink, kad svetainei įjungtas SSL (HTTPS) – be jo neveiks mikrofonas.
+4. Atidaryk svetainę telefone per Chrome, prisijunk slaptažodžiu. Su nexos.ai raktu: **Nustatymai → Įkelti modelių sąrašą** ir pasirink modelį.
+
+`config.php` į repo nekeliamas (`.gitignore`), o `.htaccess` neleidžia jo atidaryti per naršyklę.
+Be `api.php` (pvz., GitHub Pages) programėlė veikia senuoju būdu – raktas įvedamas nustatymuose.

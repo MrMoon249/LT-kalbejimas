@@ -27,13 +27,57 @@ export class AiError extends Error {
 
 // nexos.ai raktai prasideda „nexos-“ – pagal tai parenkamas tiekėjas (OpenAI tipo sąsaja).
 export const NEXOS_URL = 'https://api.nexos.ai/v1';
-export const isNexos = (apiKey) => /^nexos-/i.test(String(apiKey || '').trim());
+export const isNexos = (apiKey) => /^(server:)?nexos/i.test(String(apiKey || '').trim());
+
+// Serverio režimas (api.php): raktas guli serveryje, o čia vietoj rakto naudojama žymė „server:<tiekėjas>“.
+const SERVER_URL = 'api.php';
+const viaServer = (apiKey) => String(apiKey || '').startsWith('server:');
+export const serverKey = (info) => `server:${info && info.provider === 'nexos' ? 'nexos' : 'anthropic'}`;
+
+async function serverCall(payload, method = 'POST') {
+  let res;
+  try {
+    res = await fetch(SERVER_URL, method === 'GET'
+      ? { cache: 'no-store' }
+      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  } catch {
+    throw new AiError('network', 'Nepavyko prisijungti prie serverio. Patikrink interneto ryšį.');
+  }
+  let j = null;
+  try { j = await res.json(); } catch { /* ne JSON */ }
+  if (!res.ok || !j) {
+    const err = new AiError(res.status === 429 ? 'rate' : 'api', (j && j.error && j.error.message) || `Serverio klaida (${res.status})`);
+    err.status = res.status;
+    err.type = j && j.error && j.error.type;
+    throw err;
+  }
+  return j;
+}
+
+/** Ar programėlė talpinama su api.php? Grąžina { authed, provider, model } arba null (statinis talpinimas). */
+export async function serverStatus() {
+  try {
+    const j = await serverCall(null, 'GET');
+    return j && j.server ? j : null;
+  } catch (e) {
+    // 503 – api.php yra, bet nesukonfigūruotas: tai irgi serverio režimas, tik su klaida.
+    return e && e.type === 'not_configured' ? { authed: false, provider: '', model: '', error: e.message } : null;
+  }
+}
+export const serverLogin = (password) => serverCall({ action: 'login', password });
+export const serverLogout = () => serverCall({ action: 'logout' });
 
 async function post(body, apiKey, signal) {
   const nexos = isNexos(apiKey);
+  const server = viaServer(apiKey);
   let res;
   try {
-    res = await fetch(nexos ? `${NEXOS_URL}/chat/completions` : API_URL, {
+    res = await fetch(server ? SERVER_URL : nexos ? `${NEXOS_URL}/chat/completions` : API_URL, server ? {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'chat', body }),
+      signal,
+    } : {
       method: 'POST',
       headers: nexos
         ? { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` }
@@ -65,11 +109,15 @@ async function post(body, apiKey, signal) {
     }
   }
   let detail = '';
+  let etype = '';
   try {
     const j = await res.json();
+    etype = (j && j.error && j.error.type) || '';
     detail = (j && j.error && (j.error.message || (typeof j.error === 'string' && j.error))) || (j && j.message) || '';
   } catch { /* ne JSON klaidos kūnas */ }
   const s = res.status;
+  if (server && etype === 'login_required') throw new AiError('login', 'Sesija baigėsi. Prisijunk iš naujo.');
+  if (server && etype === 'upstream_auth') throw new AiError('auth', detail);
   if (s === 401 || s === 403) {
     throw new AiError('auth', 'API raktas netinkamas arba neturi teisių. Patikrink raktą nustatymuose.');
   }
@@ -142,10 +190,13 @@ export async function listModels(opts) {
   if (!isNexos(apiKey)) return [DEFAULT_MODEL];
   let res;
   try {
-    res = await fetch(`${NEXOS_URL}/models`, { headers: { authorization: `Bearer ${apiKey}` } });
+    res = await fetch(...(viaServer(apiKey)
+      ? [SERVER_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'models' }) }]
+      : [`${NEXOS_URL}/models`, { headers: { authorization: `Bearer ${apiKey}` } }]));
   } catch {
     throw new AiError('network', 'Nepavyko prisijungti prie nexos.ai. Patikrink interneto ryšį. Jei ryšys geras – gali būti, kad nexos.ai neleidžia kreiptis tiesiai iš naršyklės (CORS).');
   }
+  if (viaServer(apiKey) && res.status === 401) throw new AiError('login', 'Sesija baigėsi. Prisijunk iš naujo.');
   if (res.status === 401 || res.status === 403) throw new AiError('auth', 'API raktas netinkamas arba neturi teisių.');
   if (!res.ok) throw new AiError('api', `nexos.ai API klaida (${res.status})`);
   let j;
