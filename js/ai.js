@@ -132,31 +132,51 @@ async function post(body, apiKey, signal) {
   throw err;
 }
 
-function parseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Atsarginis variantas, jei JSON būtų apgaubtas tekstu ar ```.
-    const a = text.indexOf('{');
-    const b = text.lastIndexOf('}');
-    if (a !== -1 && b > a) {
-      try {
-        return JSON.parse(text.slice(a, b + 1));
-      } catch { /* krentame žemyn */ }
+// Dažnos modelių klaidos JSON viduje: „žodis" su paprasta uždarančia kabute ir tikros naujos eilutės eilutėse.
+function repairJson(t) {
+  t = t.replace(/„([^"“”„\n]{1,400}?)"(?=[^:,}\]]|[,.]\s*[^\s"\]}])/g, '„$1“');
+  let out = '', inStr = false, esc = false;
+  for (const ch of t) {
+    if (inStr) {
+      if (esc) { esc = false; out += ch; continue; }
+      if (ch === '\\') { esc = true; out += ch; continue; }
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') continue;
+      if (ch === '\t') { out += '\\t'; continue; }
+      out += ch;
+    } else {
+      if (ch === '"') inStr = true;
+      out += ch;
     }
-    throw new AiError('parse', 'Nepavyko perskaityti AI atsakymo. Pabandyk dar kartą.');
   }
+  return out;
+}
+
+function parseJson(text) {
+  const a = text.indexOf('{');
+  const b = text.lastIndexOf('}');
+  const inner = a !== -1 && b > a ? text.slice(a, b + 1) : text; // nuimame ``` ar įžanginį tekstą
+  for (const candidate of [text, inner, repairJson(inner)]) {
+    try {
+      const v = JSON.parse(candidate);
+      if (v && typeof v === 'object') return v;
+    } catch { /* bandome kitą variantą */ }
+  }
+  const err = new AiError('parse', `Nepavyko perskaityti AI atsakymo. Pabandyk dar kartą arba pasirink kitą modelį. Atsakymo pradžia: „${text.slice(0, 160)}“`);
+  err.raw = text;
+  throw err;
 }
 
 // nexos.ai: OpenAI tipo /chat/completions. Schema įrašoma ir į nurodymus, nes ne visi modeliai palaiko response_format.
-async function callNexos({ system, content, schema }, apiKey, model, signal) {
+async function callNexos({ system, content, schema }, apiKey, model, signal, retried = false) {
   if (!model || model === DEFAULT_MODEL) {
     throw new AiError('no_model', 'Su nexos.ai raktu reikia pasirinkti modelį. Nustatymuose paspausk „Įkelti modelių sąrašą“ ir pasirink.');
   }
   const body = {
     model,
     messages: [
-      { role: 'system', content: `${system}\n\nAtsakyk TIK vienu JSON objektu (be jokio kito teksto, be \`\`\`), tiksliai pagal šią JSON schemą:\n${JSON.stringify(schema)}` },
+      { role: 'system', content: `${system}\n\nAtsakyk TIK vienu galiojančiu JSON objektu (be jokio kito teksto, be \`\`\`). JSON eilutėse naujas eilutes rašyk kaip \\n, o citatoms naudok tik lietuviškas kabutes „…“ (niekada paprastų \" teksto viduje). Tiksliai laikykis šios JSON schemos:\n${JSON.stringify(schema)}` },
       {
         role: 'user',
         content: content.map((c) => (c.type === 'image'
@@ -182,7 +202,12 @@ async function callNexos({ system, content, schema }, apiKey, model, signal) {
   const c = choice.message && choice.message.content;
   const text = (Array.isArray(c) ? c.map((b) => (b && b.text) || '').join('') : String(c || '')).trim();
   if (!text) throw new AiError('api', 'Modelis negrąžino atsakymo (galbūt atsisakė). Pabandyk kitą modelį ar tekstą.');
-  return parseJson(text);
+  try {
+    return parseJson(text);
+  } catch (e) {
+    if (retried) throw e;
+    return callNexos({ system, content, schema }, apiKey, model, signal, true); // vienas pakartojimas
+  }
 }
 
 // Modelių sąrašas nustatymams (tik nexos.ai): grąžina pavadinimų masyvą.
